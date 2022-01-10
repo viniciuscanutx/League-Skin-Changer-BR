@@ -20,6 +20,9 @@ Segundo, eu apenas traduzi o programa e troquei o Inject pois vi que contia algu
 Também resolvi alguns bugs de UI e de funcionamento.
 
 
+Feito no Visual Studio 2019 e deve ser compilado em Configuração "Release | x86"  
+
+
 # Sobre o Programa
 Um trocador de skins para league of legends, totalmente traduzido e desbugado por mim, com um novo aplicador que não da ban.
 
