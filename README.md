@@ -22,7 +22,7 @@ Peço que tenham calma, pode conter alguns bugs e alguns erros bobos, mas é tot
 # Como Usar
 1. Primeiro coloque o "League Injector" na pasta do seu League, depois, execute-o (Lembre-se de executar como Administrador)
 2. Aguarde o começo da sua partida e o Injector.
-3. Aperte Insert para abrir/fechar o menu de skins...
+3. Aperte `Insert` para abrir/fechar o menu de skins...
 4. Selecione skins para você, seus teammates, skins de ward e etc.
 
 
