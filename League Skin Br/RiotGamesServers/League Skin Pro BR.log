@@ -1,7 +1,0 @@
-﻿D:\Visual Studio 2019\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: O diretório intermediário (RiotGamesServers\) contém arquivos compartilhados de outro projeto (R3nzSkin.vcxproj). Isso pode levar a um comportamento incorreto de limpeza e recompilação.
-  Gerando código
-  0 of 3495 functions ( 0.0%) were compiled, the rest were copied from previous compilation.
-    0 functions were new in current compilation
-    0 functions had inline decision re-evaluated but remain unchanged
-  Finalizada a geração de código
-  League Skin Pro BR.vcxproj -> C:\Users\Vini\Desktop\2323232\Release\RiotGamesServers\League Skin Pro BR.dll
