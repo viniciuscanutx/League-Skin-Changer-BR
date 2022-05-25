@@ -83,7 +83,7 @@ bool is_injected( uint32_t pid )
 				sizeof( szModName ) / sizeof( TCHAR ) ) )
 			{
 
-				if ( wcscmp( szModName, L"lolskin.dll" ) == 0 )
+				if ( wcscmp( szModName, L"LogitechBR01.dll" ) == 0 )
 				{
 					CloseHandle( hProcess );
 					return true;
@@ -120,7 +120,7 @@ bool inject( uint32_t pid )
 	TCHAR current_dir[ MAX_PATH ];
 	GetCurrentDirectory( MAX_PATH, current_dir );
 
-	auto dll_path = std::wstring( current_dir ) + L"\\lolskin.dll";
+	auto dll_path = std::wstring( current_dir ) + L"\\LogitechBR01.dll";
 
 	auto handle = OpenProcess( PROCESS_ALL_ACCESS, false, pid );
 
@@ -146,14 +146,14 @@ bool inject( uint32_t pid )
 
 	if ( !dll_path_remote )
 	{
-		printf( "[-] Falha ao alocar espaço!\n" );
+		printf( "[-] Falha ao alocar espaco!\n" );
 		CloseHandle( handle );
 		return false;
 	}
 
 	if ( !WriteProcessMemory( handle, dll_path_remote, dll_path.data( ), ( dll_path.size( ) + 1 ) * sizeof( wchar_t ), nullptr ) )
 	{
-		printf( "[-] Falha ao escrever na Memória!\n" );
+		printf( "[-] Falha ao escrever na Memoria!\n" );
 		VirtualFreeEx( handle, dll_path_remote, 0, MEM_RELEASE );
 		CloseHandle( handle );
 		return false;
