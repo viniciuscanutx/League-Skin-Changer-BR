@@ -1,220 +1,110 @@
+#pragma warning(disable: 28182 6011)
+
 #include <Windows.h>
+#include <chrono>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "GameClasses.hpp"
 #include "Memory.hpp"
 #include "Offsets.hpp"
 
-
-std::uint8_t* find_signature(const wchar_t* szModule, const char* szSignature) noexcept
+[[nodiscard]] static std::uint8_t* find_signature(const wchar_t* szModule, const char* szSignature) noexcept
 {
-	try {
-		const auto module{ ::GetModuleHandleW(szModule) };
-		static auto pattern_to_byte = [](const char* pattern) {
-			auto bytes{ std::vector<std::int32_t>{} };
-			const auto start{ const_cast<char*>(pattern) };
-			const auto end{ const_cast<char*>(pattern) + ::strlen(pattern) };
+	const auto module{ ::GetModuleHandle(szModule) };
 
-			for (auto* current{ start }; current < end; ++current) {
-				if (*current == '?') {
+	using bytes_t = std::vector<std::int32_t>;
+
+	static const auto pattern_to_byte = [](const char* pattern) noexcept -> bytes_t
+	{
+		bytes_t bytes{};
+		const auto start{ const_cast<char*>(pattern) };
+		const auto end{ const_cast<char*>(pattern) + strlen(pattern) };
+
+		for (auto current{ start }; current < end; ++current) {
+			if (*current == '?') {
+				++current;
+				if (*current == '?')
 					++current;
-					if (*current == '?')
-						++current;
-					bytes.push_back(-1);
-				} else
-					bytes.push_back(::strtoul(current, &current, 16));
+				bytes.push_back(-1);
+			} else {
+				bytes.push_back(strtoul(current, &current, 16));
 			}
-			return bytes;
-		};
+		}
 
-		const auto dosHeader{ reinterpret_cast<PIMAGE_DOS_HEADER>(module) };
-		if (dosHeader == NULL)
-			return nullptr;
+		return bytes;
+	};
 
-		const auto ntHeaders{ reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::uint8_t*>(module + dosHeader->e_lfanew)) };
-		const auto textSection{ IMAGE_FIRST_SECTION(ntHeaders) };
-		const auto sizeOfImage{ textSection->SizeOfRawData };
-		const auto patternBytes{ pattern_to_byte(szSignature) };
-		const auto scanBytes{ reinterpret_cast<std::uint8_t*>(module) + textSection->VirtualAddress };
-		const auto s{ patternBytes.size() };
-		const auto d{ patternBytes.data() };
-		auto mbi{ MEMORY_BASIC_INFORMATION{ 0 } };
-		std::uint8_t* next_check_address{ 0 };
+	const auto dosHeader{ (PIMAGE_DOS_HEADER)module };
+	const auto ntHeaders{ (PIMAGE_NT_HEADERS)((std::uint8_t*)module + dosHeader->e_lfanew) };
+	const auto textSection{ IMAGE_FIRST_SECTION(ntHeaders) };
 
-		for (auto i{ 0ul }; i < sizeOfImage - s; ++i) {
-			bool found{ true };
-			for (auto j{ 0ul }; j < s; ++j) {
-				const auto current_address{ scanBytes + i + j };
-				if (current_address >= next_check_address) {
-					if (!::VirtualQuery(reinterpret_cast<void*>(current_address), &mbi, sizeof(mbi)))
-						break;
+	const auto sizeOfImage{ textSection->SizeOfRawData };
+	const auto patternBytes{ pattern_to_byte(szSignature) };
+	const auto scanBytes{ reinterpret_cast<std::uint8_t*>(module) + textSection->VirtualAddress };
 
-					if (mbi.Protect == PAGE_NOACCESS || mbi.State != MEM_COMMIT) {
-						i += ((reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize) - (reinterpret_cast<std::uintptr_t>(scanBytes) + i));
-						i--;
-						found = false;
-						break;
-					} else
-						next_check_address = reinterpret_cast<std::uint8_t*>(mbi.BaseAddress) + mbi.RegionSize;
-				}
+	const auto s{ patternBytes.size() };
+	const auto d{ patternBytes.data() };
 
-				if (scanBytes[i + j] != d[j] && d[j] != -1) {
+	MEMORY_BASIC_INFORMATION mbi{ 0 };
+	std::uint8_t* next_check_address{ 0 };
+
+	for (auto i{ 0ul }; i < sizeOfImage - s; ++i) {
+		bool found{ true };
+		for (auto j{ 0ul }; j < s; ++j) {
+			const auto current_address{ scanBytes + i + j };
+			if (current_address >= next_check_address) {
+				if (!::VirtualQuery(reinterpret_cast<void*>(current_address), &mbi, sizeof(mbi)))
+					break;
+
+				if (mbi.Protect == PAGE_NOACCESS) {
+					i += ((std::uintptr_t(mbi.BaseAddress) + mbi.RegionSize) - (std::uintptr_t(scanBytes) + i));
+					i--;
 					found = false;
 					break;
+				} else {
+					next_check_address = reinterpret_cast<std::uint8_t*>(mbi.BaseAddress) + mbi.RegionSize;
 				}
 			}
-			if (found)
-				return &scanBytes[i];
+
+			if (scanBytes[i + j] != d[j] && d[j] != -1) {
+				found = false;
+				break;
+			}
 		}
-		return nullptr;
-	} catch (const std::exception&) {
-		return nullptr;
+
+		if (found)
+			return &scanBytes[i];
+	}
+
+	return nullptr;
+
+}
+
+void Memory::update(bool gameClient) noexcept
+{
+	if (gameClient) {
+		this->client = *reinterpret_cast<GameClient**>(this->getLeagueModule() + offsets::global::GameClient);
+	} else {
+		this->localPlayer = *reinterpret_cast<AIBaseCommon**>(this->getLeagueModule() + offsets::global::Player);
+		this->heroList = *reinterpret_cast<ManagerTemplate<AIHero>**>(this->getLeagueModule() + offsets::global::ManagerTemplate_AIHero_);
+		this->minionList = *reinterpret_cast<ManagerTemplate<AIMinionClient>**>(this->getLeagueModule() + offsets::global::ManagerTemplate_AIMinionClient_);
+		this->championManager = *reinterpret_cast<ChampionManager**>(this->getLeagueModule() + offsets::global::ChampionManager);
+		this->translateString = reinterpret_cast<const char*(__cdecl*)(const char*)>(this->getLeagueModule() + offsets::functions::translateString_UNSAFE_DONOTUSE);
+		this->materialRegistry = reinterpret_cast<std::uintptr_t(__stdcall*)()>(this->getLeagueModule() + offsets::functions::Riot__Renderer__MaterialRegistry__GetSingletonPtr)();
+		this->d3dDevice = *reinterpret_cast<IDirect3DDevice9**>(this->materialRegistry + offsets::MaterialRegistry::D3DDevice);
+		this->swapChain = *reinterpret_cast<IDXGISwapChain**>(this->materialRegistry + offsets::MaterialRegistry::SwapChain);
 	}
 }
 
-class offset_signature {
-public:
-	std::vector<std::string> pattern;
-	bool sub_base;
-	bool read;
-	std::int32_t additional;
-	std::uintptr_t* offset;
-};
-
-std::vector<offset_signature> gameClientSig{
-	{
-		{
-			"A1 ? ? ? ? 56 83 78 08 00",
-			"A1 ? ? ? ? 68 ? ? ? ? 8B 70 08",
-			"A1 ? ? ? ? 83 78 08 02 0F 85 ? ? ? ?"
-		},
-		true, true, 0,
-		&offsets::global::GameClient
-	}
-};
-
-std::vector<offset_signature> sigs{ 
-	{
-		{
-			"A1 ? ? ? ? 8B 54 24 28",
-			"8B 0D ? ? ? ? 85 C9 0F 84 ? ? ? ? 83 7E 10 00"
-		},
-		true, true, 0,
-		&offsets::global::Player
-	},
-	{
-		{
-			"A1 ? ? ? ? 8B 54 24 14 53",
-			"8B 0D ? ? ? ? 50 8D 44 24 18 C7 44 24 ? ? ? ? ?",
-			"8B 0D ? ? ? ? 6A 00 E8 ? ? ? ? 8B CE"
-		},
-		true, true, 0,
-		&offsets::global::ManagerTemplate_AIHero_
-	},
-	{
-		{
-			"89 1D ? ? ? ? 57 8D 4B 08",
-			"8B 3D ? ? ? ? 85 FF 74 2B 8B 4F 1C"
-		},
-		true, true, 0,
-		&offsets::global::ChampionManager
-	},
-	{
-		{
-			"A1 ? ? ? ? 53 55 8B 6C 24 1C",
-			"8B 35 ? ? ? ? 8B 56 04",
-			"8B 35 ? ? ? ? 8B 49 08 E8 ? ? ? ? F3 0F 10 0D ? ? ? ?"
-		},
-		true, true, 0,
-		&offsets::global::ManagerTemplate_AIMinionClient_ 
-	},
-	{
-		{
-			"3B 05 ? ? ? ? 75 72",
-			"FF 35 ? ? ? ? E8 ? ? ? ? 83 C4 0C 80 7E 2C 00",
-			"FF 35 ? ? ? ? 8B CE E8 ? ? ? ? 8D 44 24 04"
-		},
-		true, true, 0,
-		&offsets::global::Riot__g_window
-	},
-	{
-		{
-			"8D 8E ? ? ? ? FF 74 24 4C"
-		},
-		false, true, 0,
-		&offsets::AIBaseCommon::CharacterDataStack
-	},
-	{
-		{
-			"80 BE ? ? ? ? ? 75 4D 0F 31"
-		},
-		false, true, 0,
-		&offsets::AIBaseCommon::SkinId
-	},
-	{
-		{
-			"8B 86 ? ? ? ? 89 4C 24 08"
-		},
-		false, true, 0,
-		&offsets::MaterialRegistry::D3DDevice
-	},
-#ifdef _RIOT
-	{
-		{
-			"8B 8E ? ? ? ? 52 57"
-		},
-		false, true, 0,
-		&offsets::MaterialRegistry::SwapChain
-	},
-#endif
-	{
-		{
-			"83 EC 50 53 55 56 57 8B F9 8B 47 04"
-		},
-		true, false, 0,
-		&offsets::functions::CharacterDataStack__Push },
-	{
-		{
-			"E8 ? ? ? ? 8B 4E 7C 5E"
-		},
-		true, false, 0,
-		&offsets::functions::CharacterDataStack__Update
-	},
-	{
-		{
-			"E8 ? ? ? ? FF 75 38",
-			"E8 ? ? ? ? FF 73 58",
-			"E8 ? ? ? ? C7 47 ? ? ? ? ? E8 ? ? ? ?"
-		},
-		true, false, 0,
-		&offsets::functions::Riot__Renderer__MaterialRegistry__GetSingletonPtr
-	},
-	{
-		{
-			"E8 ? ? ? ? FF 75 FC 50",
-			"E8 ? ? ? ? 8B 0D ? ? ? ? 83 C4 04 8B F0 6A 0B",
-			"E8 ? ? ? ? 83 C4 04 8D 4E 0C 8B D0"
-		},
-		true, false, 0,
-		&offsets::functions::translateString_UNSAFE_DONOTUSE
-	},
-	{
-		{
-			"E8 ? ? ? ? 39 44 24 1C 5F",
-			"E8 ? ? ? ? 85 C0 74 3A"
-		},
-		true, false, 0,
-		&offsets::functions::GetGoldRedirectTarget
-	}
-};
-
 void Memory::Search(bool gameClient) noexcept
 {
+	using namespace std::chrono_literals;
+
 	try {
-		static const auto base{ Memory::getLeagueModule() };
-		const auto& signatureToSearch{ (gameClient ? gameClientSig : sigs) };
+		const auto base{ this->getLeagueModule() };
+		const auto& signatureToSearch{ (gameClient ? this->gameClientSig : this->sigs) };
 
 		for (const auto& sig : signatureToSearch)
 			*sig.offset = 0;
@@ -230,7 +120,7 @@ void Memory::Search(bool gameClient) noexcept
 					auto address{ find_signature(nullptr, pattern.c_str()) };
 
 					if (!address) {
-						::MessageBoxA(nullptr, ("Failed to find pattern: " + pattern).c_str(), "R3nzSkin", MB_OK | MB_ICONWARNING);
+						::MessageBoxA(nullptr, ("Failed to find pattern: " + pattern).c_str(), "BrSkin", MB_OK | MB_ICONWARNING);
 						continue;
 					}
 
@@ -244,7 +134,7 @@ void Memory::Search(bool gameClient) noexcept
 
 					address += sig.additional;
 
-					*sig.offset = reinterpret_cast<uintptr_t>(address);
+					*sig.offset = reinterpret_cast<uint32_t>(address);
 					break;
 				}
 
@@ -259,7 +149,8 @@ void Memory::Search(bool gameClient) noexcept
 
 			std::this_thread::sleep_for(2s);
 		}
+		this->update(gameClient);
 	} catch (const std::exception& e) {
-		::MessageBoxA(nullptr, e.what(), "R3nzSkin", MB_OK | MB_ICONWARNING);
+		::MessageBoxA(nullptr, e.what(), "BrSkin", MB_OK | MB_ICONWARNING);
 	}
 }

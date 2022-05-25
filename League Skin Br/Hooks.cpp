@@ -1,39 +1,70 @@
 #include <Windows.h>
 #include <ShlObj.h>
 #include <cinttypes>
-#include <d3d11.h>
-#include <d3d9.h>
 #include <filesystem>
 #include <string>
 
 #include "fnv_hash.hpp"
 #include "imgui/imgui.h"
-#include "imgui/imgui_extend.h"
 #include "imgui/imgui_impl_dx11.h"
 #include "imgui/imgui_impl_dx9.h"
 #include "imgui/imgui_impl_win32.h"
 #include "vmt_smart_hook.hpp"
 
-#include "Config.hpp"
-#include "GUI.hpp"
-#include "GameClasses.hpp"
+#include "CheatManager.hpp"
 #include "Hooks.hpp"
 #include "Memory.hpp"
-#include "Offsets.hpp"
-#include "SkinDatabase.hpp"
+#include "SDK/AIBaseCommon.hpp"
+#include "SDK/GameState.hpp"
 
 LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) noexcept
+static __forceinline void nextSkin() noexcept
+{
+	const auto player{ cheatManager.memory->localPlayer };
+	if (player) {
+		auto& values{ cheatManager.database->champions_skins[fnv::hash_runtime(player->get_character_data_stack()->base_skin.model.str)] };
+		cheatManager.config->config.current_combo_skin_index++;
+		if (cheatManager.config->config.current_combo_skin_index > int32_t(values.size()))
+			cheatManager.config->config.current_combo_skin_index = int32_t(values.size());
+		if (cheatManager.config->config.current_combo_skin_index > 0)
+			player->change_skin(values[cheatManager.config->config.current_combo_skin_index - 1].model_name.c_str(), values[cheatManager.config->config.current_combo_skin_index - 1].skin_id);
+		cheatManager.config->save();
+	}
+}
+
+static __forceinline void previousSkin() noexcept
+{
+	const auto player{ cheatManager.memory->localPlayer };
+	if (player) {
+		auto& values{ cheatManager.database->champions_skins[fnv::hash_runtime(player->get_character_data_stack()->base_skin.model.str)] };
+		cheatManager.config->config.current_combo_skin_index--;
+		if (cheatManager.config->config.current_combo_skin_index > 0)
+			player->change_skin(values[cheatManager.config->config.current_combo_skin_index - 1].model_name.c_str(), values[cheatManager.config->config.current_combo_skin_index - 1].skin_id);
+		else
+			cheatManager.config->config.current_combo_skin_index = 1;
+		cheatManager.config->save();
+	}
+}
+
+static LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) noexcept
 {
 	if (::ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam))
 		return true;
 
-	if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
-		GUI::is_open = !GUI::is_open;
-		if (!GUI::is_open)
-			Config::save();
+	if (msg == WM_KEYDOWN && wParam == cheatManager.config->config.menuKey.getKey()) {
+		cheatManager.gui->is_open = !cheatManager.gui->is_open;
+		if (!cheatManager.gui->is_open)
+			cheatManager.config->save();
 	}
+
+	if (cheatManager.config->config.quickSkinChange) {
+		if (msg == WM_KEYDOWN && wParam == cheatManager.config->config.nextSkinKey.getKey())
+			nextSkin();
+		if (msg == WM_KEYDOWN && wParam == cheatManager.config->config.previousSkinKey.getKey())
+			previousSkin();
+	}
+
 	return ::CallWindowProcW(originalWndProc, window, msg, wParam, lParam);
 }
 
@@ -51,7 +82,7 @@ static const ImWchar ranges[] = {
 	0,
 };
 
-ImWchar* getFontGlyphRangesKr() noexcept
+static ImWchar* getFontGlyphRangesKr() noexcept
 {
 	static ImVector<ImWchar> rangesKR;
 	if (rangesKR.empty()) {
@@ -72,7 +103,7 @@ namespace d3d_vtable {
 	ID3D11RenderTargetView* main_render_target_view{ nullptr };
 	IDXGISwapChain* p_swap_chain{ nullptr };
 
-	void WINAPI create_render_target() noexcept
+	static void WINAPI create_render_target() noexcept
 	{
 		ID3D11Texture2D* back_buffer{ nullptr };
 		p_swap_chain->GetBuffer(0u, IID_PPV_ARGS(&back_buffer));
@@ -83,9 +114,9 @@ namespace d3d_vtable {
 		}
 	}
 
-	void init_imgui(void* device, bool is_d3d11 = false) noexcept
+	static void init_imgui(void* device, bool is_d3d11 = false) noexcept
 	{
-		SkinDatabase::load();
+		cheatManager.database->load();
 		ImGui::CreateContext();
 		auto& style{ ImGui::GetStyle() };
 
@@ -111,58 +142,54 @@ namespace d3d_vtable {
 
 		auto colors{ style.Colors };
 
-		{
-
-		colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		colors[ImGuiCol_TextDisabled] = ImVec4(0.73f, 0.75f, 0.74f, 1.00f);
-		colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.09f, 0.94f);
-		colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+		colors[ImGuiCol_Text] = ImVec4(0.95f, 0.96f, 0.98f, 1.00f);
+		colors[ImGuiCol_TextDisabled] = ImVec4(0.36f, 0.42f, 0.47f, 1.00f);
+		colors[ImGuiCol_WindowBg] = ImVec4(0.11f, 0.15f, 0.17f, 1.00f);
+		colors[ImGuiCol_ChildBg] = ImVec4(0.15f, 0.18f, 0.22f, 1.00f);
 		colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-		colors[ImGuiCol_Border] = ImVec4(0.20f, 0.20f, 0.20f, 0.50f);
+		colors[ImGuiCol_Border] = ImVec4(0.08f, 0.10f, 0.12f, 1.00f);
 		colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		colors[ImGuiCol_FrameBg] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_FrameBgHovered] = ImVec4(0.84f, 0.66f, 0.66f, 0.40f);
-		colors[ImGuiCol_FrameBgActive] = ImVec4(0.84f, 0.66f, 0.66f, 0.67f);
-		colors[ImGuiCol_TitleBg] = ImVec4(0.47f, 0.22f, 0.22f, 0.67f);
-		colors[ImGuiCol_TitleBgActive] = ImVec4(0.47f, 0.22f, 0.22f, 1.00f);
-		colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.47f, 0.22f, 0.22f, 0.67f);
-		colors[ImGuiCol_MenuBarBg] = ImVec4(0.34f, 0.16f, 0.16f, 1.00f);
-		colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
-		colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
-		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
-		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-		colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		colors[ImGuiCol_SliderGrab] = ImVec4(0.71f, 0.39f, 0.39f, 1.00f);
-		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.84f, 0.66f, 0.66f, 1.00f);
-		colors[ImGuiCol_Button] = ImVec4(0.47f, 0.22f, 0.22f, 0.65f);
-		colors[ImGuiCol_ButtonHovered] = ImVec4(0.71f, 0.39f, 0.39f, 0.65f);
-		colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.50f);
-		colors[ImGuiCol_Header] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_HeaderHovered] = ImVec4(0.84f, 0.66f, 0.66f, 0.65f);
-		colors[ImGuiCol_HeaderActive] = ImVec4(0.84f, 0.66f, 0.66f, 0.00f);
-		colors[ImGuiCol_Separator] = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
-		colors[ImGuiCol_SeparatorHovered] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_SeparatorActive] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_ResizeGrip] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.84f, 0.66f, 0.66f, 0.66f);
-		colors[ImGuiCol_ResizeGripActive] = ImVec4(0.84f, 0.66f, 0.66f, 0.66f);
-		colors[ImGuiCol_Tab] = ImVec4(0.71f, 0.39f, 0.39f, 0.54f);
-		colors[ImGuiCol_TabHovered] = ImVec4(0.84f, 0.66f, 0.66f, 0.66f);
-		colors[ImGuiCol_TabActive] = ImVec4(0.84f, 0.66f, 0.66f, 0.66f);
-		colors[ImGuiCol_TabUnfocused] = ImVec4(0.07f, 0.10f, 0.15f, 0.97f);
-		colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.14f, 0.26f, 0.42f, 1.00f);
+		colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.25f, 0.29f, 1.00f);
+		colors[ImGuiCol_FrameBgHovered] = ImVec4(0.12f, 0.20f, 0.28f, 1.00f);
+		colors[ImGuiCol_FrameBgActive] = ImVec4(0.09f, 0.12f, 0.14f, 1.00f);
+		colors[ImGuiCol_TitleBg] = ImVec4(0.09f, 0.12f, 0.14f, 0.65f);
+		colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.10f, 0.12f, 1.00f);
+		colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
+		colors[ImGuiCol_MenuBarBg] = ImVec4(0.15f, 0.18f, 0.22f, 1.00f);
+		colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.39f);
+		colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.20f, 0.25f, 0.29f, 1.00f);
+		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.18f, 0.22f, 0.25f, 1.00f);
+		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.09f, 0.21f, 0.31f, 1.00f);
+		colors[ImGuiCol_CheckMark] = ImVec4(0.28f, 0.56f, 1.00f, 1.00f);
+		colors[ImGuiCol_SliderGrab] = ImVec4(0.28f, 0.56f, 1.00f, 1.00f);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.37f, 0.61f, 1.00f, 1.00f);
+		colors[ImGuiCol_Button] = ImVec4(0.20f, 0.25f, 0.29f, 1.00f);
+		colors[ImGuiCol_ButtonHovered] = ImVec4(0.28f, 0.56f, 1.00f, 1.00f);
+		colors[ImGuiCol_ButtonActive] = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
+		colors[ImGuiCol_Header] = ImVec4(0.20f, 0.25f, 0.29f, 0.55f);
+		colors[ImGuiCol_HeaderHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
+		colors[ImGuiCol_HeaderActive] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+		colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.25f, 0.29f, 1.00f);
+		colors[ImGuiCol_SeparatorHovered] = ImVec4(0.10f, 0.40f, 0.75f, 0.78f);
+		colors[ImGuiCol_SeparatorActive] = ImVec4(0.10f, 0.40f, 0.75f, 1.00f);
+		colors[ImGuiCol_ResizeGrip] = ImVec4(0.26f, 0.59f, 0.98f, 0.25f);
+		colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
+		colors[ImGuiCol_ResizeGripActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
+		colors[ImGuiCol_Tab] = ImVec4(0.11f, 0.15f, 0.17f, 1.00f);
+		colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
+		colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.25f, 0.29f, 1.00f);
+		colors[ImGuiCol_TabUnfocused] = ImVec4(0.11f, 0.15f, 0.17f, 1.00f);
+		colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.11f, 0.15f, 0.17f, 1.00f);
 		colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
 		colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
 		colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
 		colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
 		colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
 		colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-		colors[ImGuiCol_NavHighlight] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
+		colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
 		colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
 		colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
 		colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
-
-	}
 
 		auto& io{ ImGui::GetIO() };
 		io.IniFilename = nullptr;
@@ -177,10 +204,11 @@ namespace d3d_vtable {
 			io.Fonts->AddFontFromFileTTF((path / "tahoma.ttf").string().c_str(), 15.0f, &cfg, ranges);
 			cfg.MergeMode = true;
 			io.Fonts->AddFontFromFileTTF((path / "malgun.ttf").string().c_str(), 16.0f, &cfg, getFontGlyphRangesKr());
+			io.Fonts->AddFontFromFileTTF((path / "simhei.ttf").string().c_str(), 12.0f, &cfg, io.Fonts->GetGlyphRangesChineseFull());
 			cfg.MergeMode = false;
 		}
 
-		ImGui_ImplWin32_Init(Memory::getRiotWindow());
+		ImGui_ImplWin32_Init(cheatManager.memory->getRiotWindow());
 
 		if (is_d3d11) {
 			p_swap_chain = reinterpret_cast<IDXGISwapChain*>(device);
@@ -192,22 +220,22 @@ namespace d3d_vtable {
 		} else
 			::ImGui_ImplDX9_Init(reinterpret_cast<IDirect3DDevice9*>(device));
 
-		originalWndProc = WNDPROC(::SetWindowLongW(Memory::getRiotWindow(), GWLP_WNDPROC, LONG_PTR(&wndProc)));
+		originalWndProc = WNDPROC(::SetWindowLongW(cheatManager.memory->getRiotWindow(), GWLP_WNDPROC, LONG_PTR(&wndProc)));
 	}
 
-	void render(void* device, bool is_d3d11 = false) noexcept
+	static void render(void* device, bool is_d3d11 = false) noexcept
 	{
-		static const auto client{ Memory::getClient() };
+		static const auto client{ cheatManager.memory->client };
 		if (client && client->game_state == GGameState_s::Running) {
-			Hooks::init();
-			if (GUI::is_open) {
-				if (is_d3d11)
+			cheatManager.hooks->init();
+			if (cheatManager.gui->is_open) {
+				if (is_d3d11) {
 					::ImGui_ImplDX11_NewFrame();
-				else
+				} else
 					::ImGui_ImplDX9_NewFrame();
 				::ImGui_ImplWin32_NewFrame();
 				ImGui::NewFrame();
-				GUI::render();
+				cheatManager.gui->render();
 				ImGui::EndFrame();
 				ImGui::Render();
 
@@ -229,7 +257,6 @@ namespace d3d_vtable {
 		}
 	}
 
-#ifdef _RIOT
 	struct dxgi_present {
 		static long WINAPI hooked(IDXGISwapChain* p_swap_chain, UINT sync_interval, UINT flags) noexcept
 		{
@@ -252,7 +279,6 @@ namespace d3d_vtable {
 		static decltype(&hooked) m_original;
 	};
 	decltype(dxgi_resize_buffers::m_original) dxgi_resize_buffers::m_original;
-#endif
 
 	struct end_scene {
 		static long WINAPI hooked(IDirect3DDevice9* p_device) noexcept
@@ -279,18 +305,18 @@ namespace d3d_vtable {
 	decltype(reset::m_original) reset::m_original;
 };
 
-void Hooks::init() noexcept
+void Hooks::init() const noexcept
 {
-	static const auto league_module{ Memory::getLeagueModule() };
-	static const auto player{ Memory::getLocalPlayer() };
-	static const auto heroes{ Memory::getHeroes() };
-	static const auto minions{ Memory::getMinions() };
+	static const auto player{ cheatManager.memory->localPlayer };
+	static const auto heroes{ cheatManager.memory->heroList };
+	static const auto minions{ cheatManager.memory->minionList };
 
-	std::call_once(change_skins, [&]() {
+	std::call_once(change_skins, [&]()
+	{
 		if (player) {
-			if (Config::config.current_combo_skin_index > 0) {
-				const auto& values{ SkinDatabase::champions_skins[fnv::hash_runtime(player->get_character_data_stack()->base_skin.model.str)] };
-				player->change_skin(values[Config::config.current_combo_skin_index - 1].model_name.c_str(), values[Config::config.current_combo_skin_index - 1].skin_id);
+			if (cheatManager.config->config.current_combo_skin_index > 0) {
+				const auto& values{ cheatManager.database->champions_skins[fnv::hash_runtime(player->get_character_data_stack()->base_skin.model.str)] };
+				player->change_skin(values[cheatManager.config->config.current_combo_skin_index - 1].model_name.c_str(), values[cheatManager.config->config.current_combo_skin_index - 1].skin_id);
 			}
 		}
 
@@ -300,21 +326,38 @@ void Hooks::init() noexcept
 			if (hero == player)
 				continue;
 
-			const auto is_enemy{ my_team != hero->get_team() };
-			const auto& config_array{ is_enemy ? Config::config.current_combo_enemy_skin_index : Config::config.current_combo_ally_skin_index };
 			const auto champion_name_hash{ fnv::hash_runtime(hero->get_character_data_stack()->base_skin.model.str) };
+			if (champion_name_hash == FNV("PracticeTool_TargetDummy"))
+				continue;
+
+			const auto is_enemy{ my_team != hero->get_team() };
+			const auto& config_array{ is_enemy ? cheatManager.config->config.current_combo_enemy_skin_index : cheatManager.config->config.current_combo_ally_skin_index };
 			const auto config_entry{ config_array.find(champion_name_hash) };
 			if (config_entry == config_array.end())
 				continue;
 
 			if (config_entry->second > 0) {
-				const auto& values = SkinDatabase::champions_skins[champion_name_hash];
+				const auto& values = cheatManager.database->champions_skins[champion_name_hash];
 				hero->change_skin(values[config_entry->second - 1].model_name.c_str(), values[config_entry->second - 1].skin_id);
 			}
 		}
 	});
 
-	static const auto change_skin_for_object = [](AIBaseCommon* obj, const std::int32_t skin) -> void {
+	for (auto i{ 0u }; i < heroes->length; ++i) {
+		if (const auto hero{ heroes->list[i] }; hero->get_character_data_stack()->stack.size() > 0) {
+			// Viego transforms into another champion as 2nd form, our own skin's id may not match for every champion.
+			if (const auto championName{ fnv::hash_runtime(hero->get_character_data_stack()->base_skin.model.str) }; championName == FNV("Viego"))
+				continue;
+
+			if (auto& stack{ hero->get_character_data_stack()->stack.front() }; stack.skin != hero->get_character_data_stack()->base_skin.skin) {
+				stack.skin = hero->get_character_data_stack()->base_skin.skin;
+				hero->get_character_data_stack()->update(true);
+			}
+		}
+	}
+
+	static const auto change_skin_for_object = [](AIBaseCommon* obj, const std::int32_t skin) noexcept
+	{
 		if (skin == -1)
 			return;
 
@@ -336,7 +379,7 @@ void Hooks::init() noexcept
 				if (hash == FNV("TestCubeRender10Vision"))
 					change_skin_for_object(minion, 0);
 				else
-					change_skin_for_object(minion, Config::config.current_ward_skin_index);
+					change_skin_for_object(minion, cheatManager.config->config.current_ward_skin_index);
 			}
 			continue;
 		}
@@ -344,37 +387,27 @@ void Hooks::init() noexcept
 	}
 }
 
-void WINAPI Hooks::install() noexcept
+void Hooks::install() const noexcept
 {
-	const auto material_registry{ reinterpret_cast<std::uintptr_t(__stdcall*)()>(reinterpret_cast<std::uintptr_t>(::GetModuleHandleA(nullptr)) + offsets::functions::Riot__Renderer__MaterialRegistry__GetSingletonPtr)() };
-	const auto d3d_device{ *reinterpret_cast<IDirect3DDevice9**>(material_registry + offsets::MaterialRegistry::D3DDevice) };
-#ifdef _RIOT
-	const auto swap_chain{ *reinterpret_cast<IDXGISwapChain**>(material_registry + offsets::MaterialRegistry::SwapChain) };
-#endif
-
-	if (d3d_device) {
-		d3d_device_vmt = std::make_unique<::vmt_smart_hook>(d3d_device);
+	if (cheatManager.memory->d3dDevice) {
+		d3d_device_vmt = std::make_unique<::vmt_smart_hook>(cheatManager.memory->d3dDevice);
 		d3d_device_vmt->apply_hook<d3d_vtable::end_scene>(42);
 		d3d_device_vmt->apply_hook<d3d_vtable::reset>(16);
-	}
-
-#ifdef _RIOT
-	else if (swap_chain) {
-		swap_chain_vmt = std::make_unique<::vmt_smart_hook>(swap_chain);
+	} else if (cheatManager.memory->swapChain) {
+		swap_chain_vmt = std::make_unique<::vmt_smart_hook>(cheatManager.memory->swapChain);
 		swap_chain_vmt->apply_hook<d3d_vtable::dxgi_present>(8);
 		swap_chain_vmt->apply_hook<d3d_vtable::dxgi_resize_buffers>(13);
 	}
-#endif
 }
 
-void WINAPI Hooks::uninstall() noexcept
+void Hooks::uninstall() const noexcept
 {
-	::SetWindowLongW(Memory::getRiotWindow(), GWLP_WNDPROC, LONG_PTR(originalWndProc));
+	::SetWindowLongW(cheatManager.memory->getRiotWindow(), GWLP_WNDPROC, LONG_PTR(originalWndProc));
 
 	if (d3d_device_vmt)
 		d3d_device_vmt->unhook();
 	if (swap_chain_vmt)
 		swap_chain_vmt->unhook();
 
-	run = false;
+	cheatManager.cheatState = false;
 }

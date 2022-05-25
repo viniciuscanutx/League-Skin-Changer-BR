@@ -1,24 +1,26 @@
-#include <Windows.h>
 #include <fstream>
 #include <string>
 
 #include "Json/json.hpp"
 
-#include "Config.hpp"
-#include "GameClasses.hpp"
+#include "CheatManager.hpp"
 #include "Memory.hpp"
-#include "Offsets.hpp"
+#include "Utils.hpp"
 
 void Config::save() noexcept
 {
-	static const auto player{ Memory::getLocalPlayer() };
-	auto out{ std::ofstream(L"R3nzSkin.json") };
+	const auto player{ cheatManager.memory->localPlayer };
+	auto out{ std::ofstream(L"BrSkin.json") };
 
 	if (player)
 		config_json[std::string(player->get_character_data_stack()->base_skin.model.str) + ".current_combo_skin_index"] = config.current_combo_skin_index;
 
+	config_json["menuKey"] = config.menuKey.toString();
+	config_json["nextSkinKey"] = config.nextSkinKey.toString();
+	config_json["previousSkinKey"] = config.previousSkinKey.toString();
 	config_json["heroName"] = config.heroName;
 	config_json["raibowText"] = config.rainbowText;
+	config_json["quickSkinChange"] = config.quickSkinChange;
 	config_json["current_combo_ward_index"] = config.current_combo_ward_index;
 	config_json["current_ward_skin_index"] = config.current_ward_skin_index;
 
@@ -34,8 +36,8 @@ void Config::save() noexcept
 
 void Config::load() noexcept
 {
-	static const auto player{ Memory::getLocalPlayer() };
-	auto out{ std::ifstream(L"R3nzSkin.json") };
+	const auto player{ cheatManager.memory->localPlayer };
+	auto out{ std::ifstream(L"BrSkin.json") };
 
 	if (!out.good())
 		return;
@@ -45,8 +47,12 @@ void Config::load() noexcept
 	if (player)
 		config.current_combo_skin_index = config_json.value(std::string(player->get_character_data_stack()->base_skin.model.str) + ".current_combo_skin_index", 0);
 	
+	config.menuKey = KeyBind(config_json.value("menuKey", "INSERT").c_str());
+	config.nextSkinKey = KeyBind(config_json.value("nextSkinKey", "PAGE_UP").c_str());
+	config.previousSkinKey = KeyBind(config_json.value("previousSkinKey", "PAGE_DOWN").c_str());
 	config.heroName = config_json.value("heroName", true);
 	config.rainbowText = config_json.value("raibowText", false);
+	config.quickSkinChange = config_json.value("quickSkinChange", false);
 	config.current_combo_ward_index = config_json.value("current_combo_ward_index", 0);
 	config.current_ward_skin_index = config_json.value("current_ward_skin_index", -1);
 
@@ -65,8 +71,12 @@ void Config::load() noexcept
 
 void Config::reset() noexcept
 {
+	config.menuKey = KeyBind(KeyBind::INSERT);
+	config.nextSkinKey = KeyBind(KeyBind::PAGE_UP);
+	config.previousSkinKey = KeyBind(KeyBind::PAGE_DOWN);
 	config.heroName = true;
 	config.rainbowText = true;
+	config.quickSkinChange = false;
 	config.current_combo_skin_index = 0;
 	config.current_combo_ward_index = 0;
 	config.current_ward_skin_index = -1;

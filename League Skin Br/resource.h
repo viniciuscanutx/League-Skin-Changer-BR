@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by R3nzSkin.rc
+// Used by SkinBR.01.rc
 
 // Yeni nesneler için sonraki varsayýlan deðerler
 // 
