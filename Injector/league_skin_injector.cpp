@@ -126,7 +126,7 @@ bool inject( uint32_t pid )
 
 	if ( !handle || handle == INVALID_HANDLE_VALUE )
 	{
-		printf( "[-] Falha ao Abrir Processo do League!\n" );
+		printf( "[-] Falha ao abrir processo...\n" );
 		return false;
 	}
 
@@ -146,14 +146,14 @@ bool inject( uint32_t pid )
 
 	if ( !dll_path_remote )
 	{
-		printf( "[-] Falha ao alocar espaco!\n" );
+		printf( "[-] Falha ao alocar espaco...\n" );
 		CloseHandle( handle );
 		return false;
 	}
 
 	if ( !WriteProcessMemory( handle, dll_path_remote, dll_path.data( ), ( dll_path.size( ) + 1 ) * sizeof( wchar_t ), nullptr ) )
 	{
-		printf( "[-] Falha ao escrever na Memoria!\n" );
+		printf( "[-] Falha ao escrever na memoria...\n" );
 		VirtualFreeEx( handle, dll_path_remote, 0, MEM_RELEASE );
 		CloseHandle( handle );
 		return false;
@@ -162,7 +162,7 @@ bool inject( uint32_t pid )
 	auto thread = CreateRemoteThread( handle, nullptr, 0, reinterpret_cast< LPTHREAD_START_ROUTINE >( GetProcAddress( LoadLibrary( L"kernel32.dll" ), "LoadLibraryW" ) ), dll_path_remote, 0, nullptr );
 	if ( !thread || thread == INVALID_HANDLE_VALUE )
 	{
-		printf( "[-] Falha ao Criar a Thread!\n" );
+		printf( "[-] Falha ao criar a thread...\n" );
 		VirtualFreeEx( handle, dll_path_remote, 0, MEM_RELEASE );
 		CloseHandle( handle );
 		return false;
@@ -172,7 +172,7 @@ bool inject( uint32_t pid )
 	CloseHandle( thread );
 	VirtualFreeEx( handle, dll_path_remote, 0, MEM_RELEASE );
 	CloseHandle( handle );
-	printf( "[+] Injetado com Sucesso, Bom jogo!\n" );
+	printf( "[+] Aberto com sucesso...\n" );
 	return true;
 }
 
@@ -180,13 +180,13 @@ int main( )
 {
 	enable_debug_privilege( );
 
-	printf( "[+] Aguardando o Processo do League Of Legends...\n" );
+	printf( "[+] Aguardando o processo...\n" );
 	while ( true )
 	{
 		auto league_processes = find_processes( L"League of Legends.exe" );
 		for ( auto& pid : league_processes )
 		{
-			std::this_thread::sleep_for(6s);
+			std::this_thread::sleep_for(9s);
 
 			if ( !is_injected( pid ) ){
 				std::this_thread::sleep_for(1s);
